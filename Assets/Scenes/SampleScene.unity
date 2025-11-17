@@ -667,7 +667,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dc7b4a9d7c7f442688410bc1d84c323a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  modelAsset: {fileID: 5022602860645237092, guid: 2125bdbecefd44e46ae67526b73828b3, type: 3}
+  modelAsset: {fileID: 5022602860645237092, guid: c320164511ba24537942d07ef0ab7263, type: 3}
   backend: 256
   cameraView: {fileID: 1115440864}
   cameraAspect: {fileID: 1115440863}
@@ -679,7 +679,7 @@ MonoBehaviour:
   poseRenderer: {fileID: 995803208}
   pointPrefab: {fileID: 5962916017501461960, guid: 4b0f46b24407d4ad0b4246021e1afe34, type: 3}
   perfHUD: {fileID: 1475019801}
-  inferenceInterval: 5
+  inferenceInterval: 1
   detectors:
   - {fileID: 735615866}
 --- !u!4 &995803210
