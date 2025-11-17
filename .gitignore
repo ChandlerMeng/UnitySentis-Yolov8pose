@@ -1,0 +1,115 @@
+# Unity project .gitignore
+# Reference: https://github.com/github/gitignore/blob/main/Unity.gitignore
+
+# ============
+# OS / Editor
+# ============
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+Thumbs.db
+
+# ==========
+# IDE files
+# ==========
+# Visual Studio / VS for Mac / Rider
+.vs/
+.idea/
+*.sln.iml
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+
+# ======================
+# Unity generated files
+# ======================
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Lightmap, GI cache (auto-generated)
+# Uncomment if you want to exclude GI cache outside Library
+# [Aa]ssets/**/LightingData.asset
+# [Aa]ssets/**/LightmapSnapshot.asset
+
+# ==================================
+# Auto-generated project artifacts
+# ==================================
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity/Editor project files (usually auto-generated)
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+
+# Crashlytics generated
+*.log
+
+# =========================
+# Asset Store / Addressables
+# =========================
+Assets/AssetStoreTools*
+# Addressables build cache
+Assets/AddressableAssetsData/*/*.bin*
+Assets/AddressableAssetsData/link.xml.meta
+
+# ===============
+# Android / Gradle
+# ===============
+.gradle/
+**/gradle/**
+*.apk
+*.aab
+*.aar
+
+# =============
+# iOS / Xcode
+# =============
+*.pbxproj
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xcuserstate
+
+# =============================
+# Unity Cloud / Collaborate etc
+# =============================
+# (keep empty unless you know you’re using a system that generates files to ignore)
+
+# =============================
+# Keep meta files for assets
+# =============================
+# Asset meta files should be kept alongside their assets
+!/[Aa]ssets/**/*.meta
+
+# Never ignore the main project folders
+!/[Aa]ssets/
+!/[Pp]roject[Ss]ettings/
+!/[Pp]ackages/
+
+# Optional: ignore packed artifacts
+*.unitypackage
