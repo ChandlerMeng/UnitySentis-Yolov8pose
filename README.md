@@ -22,13 +22,28 @@
 - `Packages/`、`ProjectSettings/`：Unity 工程配置（含 URP）
 
 ## 环境要求
-- Unity 2022 LTS 或更新版本（URP 项目；Sentis 2.4.1 示例文件已包含）
+- Unity 6.0 LTS（URP 项目；Sentis 2.4.1 示例文件已包含）
 - macOS 或 Windows（需可用摄像头）
 - Git LFS 已安装并启用（用于拉取 `*.onnx`、`*.sentis` 等大文件）
 
 安装 Git LFS（macOS）：
 ```zsh
 brew install git-lfs
+git lfs install
+```
+
+安装 Git LFS（Windows）：
+```powershell
+# 方式一：winget（推荐）
+winget install GitHub.GitLFS
+git lfs install
+
+# 方式二：Chocolatey
+choco install git-lfs -y
+git lfs install
+
+# 方式三：官方安装包（交互式）
+# https://git-lfs.com/ 下载并安装，随后在命令行执行：
 git lfs install
 ```
 
@@ -39,7 +54,7 @@ git lfs install
    cd UnitySentis
    git lfs pull
    ```
-2. 用 Unity 打开工程（建议 unity 6+）。
+2. 用 Unity 打开工程（Unity 6.0 LTS）。
 3. 打开 `Assets/Scenes/SampleScene.unity` 并点击运行。
 4. 若在 macOS 无法访问摄像头，请在「系统设置 → 隐私与安全性 → 相机」允许 Unity/Editor 使用相机。
 
