@@ -7,34 +7,46 @@ using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace Inference.Demo
 {
+    // 检测候选结构，用于 NMS 过滤
+    struct DetectionCandidate
+    {
+        public int index;
+        public float confidence;
+        public float x, y, width, height;
+    }
+
     // 最小可运行：摄像头 -> 纹理转张量 -> YOLOv8 Pose 推理 -> 解析关键点 -> UI 绘制
     public class YoloPoseRunner : MonoBehaviour
     {
         [Header("Model & Backend")]
-        [SerializeField] ModelAsset modelAsset;
-        [SerializeField] BackendType backend = BackendType.GPUCompute;
+        [SerializeField, Tooltip("YOLO Pose 模型资源文件")] ModelAsset modelAsset;
+        [SerializeField, Tooltip("推理后端类型（GPU/CPU）")] BackendType backend = BackendType.GPUCompute;
 
         [Header("Camera & Display")]
-        [SerializeField] RawImage cameraView;       // 显示摄像头画面
-        [SerializeField] AspectRatioFitter cameraAspect; // 用于保持摄像头比例全屏适配
-        [SerializeField] RectTransform overlay;     // 关键点叠加层（与 cameraView 同尺寸）
-        [SerializeField] Vector2Int modelInputSize = new Vector2Int(640, 640);
+        [SerializeField, Tooltip("显示摄像头画面的 UI 组件")] RawImage cameraView;
+        [SerializeField, Tooltip("用于保持摄像头比例全屏适配")] AspectRatioFitter cameraAspect;
+        [SerializeField, Tooltip("关键点叠加层（与 cameraView 同尺寸）")] RectTransform overlay;
+        [SerializeField, Tooltip("模型输入尺寸（通常为 640x640）")] Vector2Int modelInputSize = new Vector2Int(640, 640);
 
         [Header("Thresholds")]
-        [SerializeField] float confThreshold = 0.25f;
-        [SerializeField] float keypointThreshold = 0.2f;
-        [SerializeField] int maxDetections = 5;
+        [SerializeField, Tooltip("置信度阈值（降低以检测更多候选）")] float confThreshold = 0.2f;
+        [SerializeField, Tooltip("关键点置信度阈值")] float keypointThreshold = 0.2f;
+        [SerializeField, Tooltip("最大检测数量（支持多人检测）")] int maxDetections = 10;
+        [SerializeField, Tooltip("NMS IoU 阈值（避免过度抑制不同人的检测）")] float nmsThreshold = 0.45f;
+
+        [Header("Display Control")]
+        [SerializeField, Tooltip("是否显示相机画面和骨骼节点")] bool showCameraAndSkeleton = true;
 
         [Header("Renderer")]
-        [SerializeField] YoloPoseRenderer poseRenderer;
-        [SerializeField] GameObject pointPrefab; // 供渲染器使用
-        [SerializeField] PerfHUD perfHUD;
+        [SerializeField, Tooltip("姿态渲染器组件")] YoloPoseRenderer poseRenderer;
+        [SerializeField, Tooltip("关键点预制体（供渲染器使用）")] GameObject pointPrefab;
+        [SerializeField, Tooltip("性能监控 HUD")] PerfHUD perfHUD;
 
         [Header("Perf")]
-        [SerializeField] int inferenceInterval = 1; // 每隔多少帧推理一次，1=每帧
+        [SerializeField, Tooltip("推理间隔帧数（1=每帧推理，2=隔帧推理）")] int inferenceInterval = 1;
 
         [Header("Gesture Detectors")] 
-        [SerializeField] List<GestureDetector> detectors = new List<GestureDetector>();
+        [SerializeField, Tooltip("手势检测器列表")] List<GestureDetector> detectors = new List<GestureDetector>();
 
         Worker _worker;
         Tensor<float> _inputTensor; // [1,3,H,W]
@@ -150,7 +162,7 @@ namespace Inference.Demo
                     }
 
                     _points.Clear();
-                    DecodeYoloV8Pose(cpu, _points, confThreshold, keypointThreshold, maxDetections);
+                    DecodeYoloV8Pose(cpu, _points, confThreshold, keypointThreshold, maxDetections, nmsThreshold);
 
                     // 更新可复用的上次结果
                     _lastPoints.Clear();
@@ -191,11 +203,21 @@ namespace Inference.Demo
                 _inflight = true;            // 下一帧再读回
             }
 
-            // 渲染：始终渲染上一次结果，避免非推理帧卡顿
-            if (poseRenderer != null && _lastPoints.Count > 0)
+            // 渲染:始终渲染上一次结果,避免非推理帧卡顿
+            if (showCameraAndSkeleton && poseRenderer != null && _lastPoints.Count > 0)
             {
                 float scale = Mathf.Min((float)modelInputSize.x / srcW, (float)modelInputSize.y / srcH);
                 poseRenderer.RenderPoints(_lastPoints, modelInputSize.x, modelInputSize.y, srcW, srcH, scale);
+            }
+            
+            // 控制相机画面和叠加层的显示
+            if (cameraView != null && cameraView.gameObject.activeSelf != showCameraAndSkeleton)
+            {
+                cameraView.gameObject.SetActive(showCameraAndSkeleton);
+            }
+            if (overlay != null && overlay.gameObject.activeSelf != showCameraAndSkeleton)
+            {
+                overlay.gameObject.SetActive(showCameraAndSkeleton);
             }
 
         }
@@ -252,7 +274,7 @@ namespace Inference.Demo
 
         // 解析 YOLOv8 Pose：支持 [1,56,N] / [1,N,56]（常见 YOLOv8 Pose 输出），以及部分 4D 变体
         // 56 = 4(xywh)+1(obj)+17*3(kpts)
-        static void DecodeYoloV8Pose(Tensor<float> t, List<Vector2> outPoints, float confThr, float kptThr, int maxDet)
+        static void DecodeYoloV8Pose(Tensor<float> t, List<Vector2> outPoints, float confThr, float kptThr, int maxDet, float nmsIouThr)
         {
             var s = t.shape;
             int d0 = s[0];
@@ -268,23 +290,67 @@ namespace Inference.Demo
 
                 if (C < 56 || N < 1) return;
 
-                int picked = 0;
-                for (int i = 0; i < N && picked < maxDet; i++)
+                // 第一步：收集所有候选检测及其边界框
+                var candidates = new List<DetectionCandidate>();
+                for (int i = 0; i < N; i++)
                 {
                     float conf = Read3D(t, cAxis, 4, nAxis, i);
                     if (conf < confThr) continue;
 
+                    float cx = Read3D(t, cAxis, 0, nAxis, i);
+                    float cy = Read3D(t, cAxis, 1, nAxis, i);
+                    float w = Read3D(t, cAxis, 2, nAxis, i);
+                    float h = Read3D(t, cAxis, 3, nAxis, i);
+
+                    candidates.Add(new DetectionCandidate
+                    {
+                        index = i,
+                        confidence = conf,
+                        x = cx - w * 0.5f,
+                        y = cy - h * 0.5f,
+                        width = w,
+                        height = h
+                    });
+                }
+
+                // 第二步：按置信度降序排序
+                candidates.Sort((a, b) => b.confidence.CompareTo(a.confidence));
+
+                // 第三步：NMS 过滤
+                var kept = new List<int>();
+                var suppressed = new bool[candidates.Count];
+
+                for (int i = 0; i < candidates.Count && kept.Count < maxDet; i++)
+                {
+                    if (suppressed[i]) continue;
+
+                    kept.Add(candidates[i].index);
+
+                    // 抑制与当前检测重叠度高的其他检测
+                    for (int j = i + 1; j < candidates.Count; j++)
+                    {
+                        if (suppressed[j]) continue;
+                        float iou = CalculateIoU(candidates[i], candidates[j]);
+                        if (iou > nmsIouThr)
+                        {
+                            suppressed[j] = true;
+                        }
+                    }
+                }
+
+                // 第四步：输出保留的检测结果
+                foreach (int idx in kept)
+                {
                     for (int k = 0; k < 17; k++)
                     {
-                        float kx = Read3D(t, cAxis, 5 + k * 3 + 0, nAxis, i);
-                        float ky = Read3D(t, cAxis, 5 + k * 3 + 1, nAxis, i);
-                        float ks = Read3D(t, cAxis, 5 + k * 3 + 2, nAxis, i);
+                        float kx = Read3D(t, cAxis, 5 + k * 3 + 0, nAxis, idx);
+                        float ky = Read3D(t, cAxis, 5 + k * 3 + 1, nAxis, idx);
+                        float ks = Read3D(t, cAxis, 5 + k * 3 + 2, nAxis, idx);
                         if (ks >= kptThr)
                             outPoints.Add(new Vector2(kx, ky));
                         else
                             outPoints.Add(new Vector2(-1f, -1f));
                     }
-                    picked++;
                 }
                 return;
             }
@@ -309,28 +375,87 @@ namespace Inference.Demo
                     return;
                 }
 
-                int picked = 0;
-                for (int i = 0; i < N && picked < maxDet; i++)
+                // 收集候选并应用 NMS
+                var candidates = new List<DetectionCandidate>();
+                for (int i = 0; i < N; i++)
                 {
                     float conf = Read4DByAxes(t, cAxis, 4, nAxis, i);
                     if (conf < confThr) continue;
+
+                    float cx = Read4DByAxes(t, cAxis, 0, nAxis, i);
+                    float cy = Read4DByAxes(t, cAxis, 1, nAxis, i);
+                    float w = Read4DByAxes(t, cAxis, 2, nAxis, i);
+                    float h = Read4DByAxes(t, cAxis, 3, nAxis, i);
+
+                    candidates.Add(new DetectionCandidate
+                    {
+                        index = i,
+                        confidence = conf,
+                        x = cx - w * 0.5f,
+                        y = cy - h * 0.5f,
+                        width = w,
+                        height = h
+                    });
+                }
+
+                candidates.Sort((a, b) => b.confidence.CompareTo(a.confidence));
+
+                var kept = new List<int>();
+                var suppressed = new bool[candidates.Count];
+
+                for (int i = 0; i < candidates.Count && kept.Count < maxDet; i++)
+                {
+                    if (suppressed[i]) continue;
+                    kept.Add(candidates[i].index);
+
+                    for (int j = i + 1; j < candidates.Count; j++)
+                    {
+                        if (suppressed[j]) continue;
+                        float iou = CalculateIoU(candidates[i], candidates[j]);
+                        if (iou > nmsIouThr)
+                        {
+                            suppressed[j] = true;
+                        }
+                    }
+                }
+
+                foreach (int idx in kept)
+                {
                     for (int k = 0; k < 17; k++)
                     {
-                        float kx = Read4DByAxes(t, cAxis, 5 + k * 3 + 0, nAxis, i);
-                        float ky = Read4DByAxes(t, cAxis, 5 + k * 3 + 1, nAxis, i);
-                        float ks = Read4DByAxes(t, cAxis, 5 + k * 3 + 2, nAxis, i);
+                        float kx = Read4DByAxes(t, cAxis, 5 + k * 3 + 0, nAxis, idx);
+                        float ky = Read4DByAxes(t, cAxis, 5 + k * 3 + 1, nAxis, idx);
+                        float ks = Read4DByAxes(t, cAxis, 5 + k * 3 + 2, nAxis, idx);
                         if (ks >= kptThr)
                             outPoints.Add(new Vector2(kx, ky));
                         else
                             outPoints.Add(new Vector2(-1f, -1f));
                     }
-                    picked++;
                 }
             }
             catch (Exception e)
             {
                 Debug.LogWarning($"解码 YOLOv8 Pose 输出失败: {e.Message}");
             }
+        }
+
+        // 计算两个检测框的 IoU (Intersection over Union)
+        static float CalculateIoU(DetectionCandidate a, DetectionCandidate b)
+        {
+            float x1 = Mathf.Max(a.x, b.x);
+            float y1 = Mathf.Max(a.y, b.y);
+            float x2 = Mathf.Min(a.x + a.width, b.x + b.width);
+            float y2 = Mathf.Min(a.y + a.height, b.y + b.height);
+
+            float intersectionWidth = Mathf.Max(0, x2 - x1);
+            float intersectionHeight = Mathf.Max(0, y2 - y1);
+            float intersectionArea = intersectionWidth * intersectionHeight;
+
+            float aArea = a.width * a.height;
+            float bArea = b.width * b.height;
+            float unionArea = aArea + bArea - intersectionArea;
+
+            return unionArea > 0 ? intersectionArea / unionArea : 0;
         }
 
         // 在 3D Tensor [1,C,N] 或 [1,N,C] 上读取

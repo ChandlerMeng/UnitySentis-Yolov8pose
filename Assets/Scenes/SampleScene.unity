@@ -675,11 +675,12 @@ MonoBehaviour:
   modelInputSize: {x: 640, y: 640}
   confThreshold: 0.25
   keypointThreshold: 0.2
-  maxDetections: 1
+  maxDetections: 10
+  nmsThreshold: 0.45
   poseRenderer: {fileID: 995803208}
   pointPrefab: {fileID: 5962916017501461960, guid: 4b0f46b24407d4ad0b4246021e1afe34, type: 3}
   perfHUD: {fileID: 1475019801}
-  inferenceInterval: 1
+  inferenceInterval: 5
   detectors:
   - {fileID: 735615866}
 --- !u!4 &995803210
